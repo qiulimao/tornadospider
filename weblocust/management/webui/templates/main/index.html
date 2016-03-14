@@ -1,0 +1,26 @@
+{% extends '../base/base.html' %}
+
+{% block pagebody %}
+ 
+ <div ng-app="home" ng-controller="IndexControler">
+     
+     
+     <div contentEditable="true" ng-model="editMe">Edit Me</div>
+     <input ng-model="userInput" type="integer" required>
+     
+     
+     <select  ng-model="selection" ng-options="o for o in option"></select>
+     <p>[$ userInput $]的选择是[$ selection $]</p>
+     [$ userInput $] [$ editMe $]
+     
+     <input ng-model='conditon'>
+     <p>
+         <ul>
+             <li ng-repeat="b in band | filter : conditon ">[$b$]</li>
+         </ul>
+     [$ band | filter:conditon $]
+     </p>
+ </div>
+ 
+ <script type="text/javascript" src="{{ static_url('js/index/IndexControler.js') }}"></script>
+{% end %}
