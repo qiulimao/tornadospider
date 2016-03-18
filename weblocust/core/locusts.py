@@ -11,12 +11,17 @@ from tornado.ioloop import IOLoop
 
 from weblocust.core import timer,crontab
 from tornado.httpclient import HTTPRequest,HTTPResponse
+from tornado.curl_httpclient import CurlAsyncHTTPClient
 from tornado.httputil import HTTPHeaders
 
 from .httpclient import TornadoRequestBuilder,TornadoHttpclientHeaderManager
-from .httpclient import WebLocustRequest,TornadoResponse
+from .httpclient import WebLocustRequest,TornadoResponseBuilder
 
 from .taskqueue import *
+import traceback
+
+
+CurlAsyncHTTPClient.configure(None, defaults=dict(max_clients=200))
 
 class BaseLocut(object):
     """
@@ -30,22 +35,23 @@ class BaseLocut(object):
 
 class TornadoBaseLocust(BaseLocut):
     """
-        基本
-        Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Ubuntu Chromium/48.0.2564.116 Chrome/48.0.2564.116 Safari/537.36
-        cookie：的基本样子：
-        ['__cfduid=d91d42345b0e1eacce8110aa7a67e0b111458022618; expires=Wed, 15-Mar-17 06:16:58 GMT; path=/; domain=.wooyun.org; HttpOnly', 'PHPSESSID=i7sm27865ja25o0ba516vd9fi5; path=/']
-
+        基于tornado的爬虫父类
     """
     start_url = "http://news.163.com/"
-    start_urls = ["http://news.163.com/","http://www.163.com/"]
-    cookie = None
-    concurrency = 16
+    start_urls = [
+        "http://news.163.com/",
+        "http://www.163.com/",
+        "http://news.sina.com.cn/",
+        "http://news.baidu.com/",
+        "http://news.qq.com/",
+        "http://news.ifeng.com/"
+        ]
+    concurrency = 64
+    
     header_manager = TornadoHttpclientHeaderManager()
     
     COOKIE_ENABLE = False
     
-    count = 0
-
     Load_factor = 0
     
     def __init__(self):
@@ -71,14 +77,11 @@ class TornadoBaseLocust(BaseLocut):
             
             ##
             #要不要把start_urls里面的url都访问一遍ne?
-            #
+            ##
         """
-        request = TornadoRequestBuilder.build_request(self.start_url)
-
+        request = TornadoRequestBuilder.build_request(self.start_url,self.header_manager.headers)
         response =  httpclient.HTTPClient().fetch(request)
-
-        self.handle_cookie(response,froce = True)
-        #print ">>>>>>>>>>>>>>>>>>>>>>>>>>"
+        self.handle_cookie(response)
         return response
         
     @gen.coroutine
@@ -86,47 +89,48 @@ class TornadoBaseLocust(BaseLocut):
         """
             访问某个网页
         """
-        request = TornadoRequestBuilder.build_request(url)
+        request = TornadoRequestBuilder.build_request(url,self.header_manager.headers)
         try:
-            response = yield httpclient.AsyncHTTPClient().fetch(request)  
-            #print "successfully request the url %d" % random.randrange(1,100)
-            
-            self.handle_cookie(response)
-            
-            raise gen.Return(response)    
-        
+            response = yield CurlAsyncHTTPClient().fetch(request)                               
+            raise gen.Return(response)            
         except gen.Return:
             raise gen.Return(response)       
         except httpclient.HTTPError as e:
-            print "suffered an http error[%s]" % e
-            print url
+            print "http error[%s]" % e
         except gaierror as e:
-            print "get an socket error[gaierror]"
+            print "gai error"
         except Exception as e:
-            print "get an [%s] error" % type(e)
+            print "error %s" %e 
+
         
-        self.count += 1
-        #self.Load_factor += 1
     @gen.coroutine
     def consumer(self):
         """
-            调度程序
+            消费者
         """
-        while True:    
-            task = yield self.get_from_queue()            
-            response = yield self.visit(task.url)
-            NormalTaskQueue.queue.task_done()
-            self.Load_factor += 1  
-            
-            if not isinstance(response,HTTPResponse):
-                continue        
-            yield getattr(self,task.callback)(TornadoResponse(response))   
+        while True:
+            try:    
+                task = yield self.get_from_queue()            
+                response = yield self.visit(task.url)
+                NormalTaskQueue.queue.task_done()
+                self.Load_factor += 1  
+                if not isinstance(response,HTTPResponse):
+                    print "we need HTTPResponse instance from[%s],not [%s]" % (task.url,type(response))
+                    continue
+                locust_response = TornadoResponseBuilder.build_response(response)            
+                yield getattr(self,task.callback)(locust_response) 
+            except Exception as e:
+                print "[FatalError] %s" % traceback.format_exc()
              
     @gen.coroutine
     def start_consumers(self):
-    
-        for _ in range(self.concurrency):
-            yield self.consumer()
+        """
+            批量的异步作业时，需要一起yield，否则第一个任务阻塞了，后面的任务都没法加入ioloop
+            但是有个问题：
+                如果一起yield，如果list当中的任何一个yield发生exception，将不会被及时抛出！！！
+                <所以最好在每个协程里面处理异常>
+        """
+        yield [self.consumer() for _ in range(self.concurrency)]
     
     @gen.coroutine
     def parse(self,response):
@@ -134,24 +138,44 @@ class TornadoBaseLocust(BaseLocut):
             解析和存储过程不能使用异步，因为：
                 普通情况下操作文件可以使用异步，但是因为是数据库操作，
                 所以很有可能造成数据库锁表，因此效率会更加大打折扣。
+            所有的请回回调函数都是 producer
         """
 
         links =  response.xpath("//a/@href")
-        
-        for link in links:
-            yield self.send_request(WebLocustRequest(link,"parse_one"))
+        a = [1,2,3,4,5]
+        print a[8]
+        yield [self.send_request(WebLocustRequest(response.urljoin(link),"parse_one")) for link in links]
     
     @gen.coroutine
     def parse_one(self,response):
-        print response.request_time,response.url
+        #print response.request_time,response.url
         #print response.xpath("//title/text()")
+        #links =  response.xpath("//a/@href")
+        #yield [self.send_request(WebLocustRequest(link,"final_page")) for link in links]
+        a = response.xpath("//title/text()")
+        #if a:
+        #    print "\t",response.url,"\t",a[0]   
+        #else:
+        #    print "###############################################################"
+
+            
+            
+    @gen.coroutine
+    def final_page(self,response):
+        """
+            producer
+        """
+        pass
     
     @timer(interval=5,lifespan=10*356*24*60*60)
     @gen.coroutine
     def status_watcher5s(self):
-        for _ in range(self.Load_factor):
+        """
+            每5s的任务情况统计器
+        """
+        for _ in range(self.Load_factor/5):
             print "-",
-        print self.Load_factor 
+        print self.Load_factor/5 
         self.Load_factor = 0  
     
     #@gen.coroutine
@@ -166,12 +190,12 @@ class TornadoBaseLocust(BaseLocut):
     def start(self):
         """
             启动爬虫程序
-        """
-        self.count += 1
-        
+        """       
         #往队列当中构造任务
-        for url in self.start_urls:
-            yield self.put2queue(WebLocustRequest(url,"parse"))
+        #for url in self.start_urls:
+        #    yield self.put2queue(WebLocustRequest(url,"parse"))
+        #
+        yield [self.put2queue(WebLocustRequest(url,"parse")) for url in self.start_urls]
     
     
     @gen.coroutine
