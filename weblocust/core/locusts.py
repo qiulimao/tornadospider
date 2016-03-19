@@ -15,7 +15,7 @@ from tornado.curl_httpclient import CurlAsyncHTTPClient
 from tornado.httputil import HTTPHeaders
 
 from .httpclient import TornadoRequestBuilder,TornadoHttpclientHeaderManager
-from .httpclient import WebLocustRequest,TornadoResponseBuilder
+from .httpclient import WebLocustRequest,TornadoResponseBuilder,Request,Build2TornadoRequest
 
 from .taskqueue import *
 import traceback
@@ -39,12 +39,13 @@ class TornadoBaseLocust(BaseLocut):
     """
     start_url = "http://news.163.com/"
     start_urls = [
-        "http://news.163.com/",
-        "http://www.163.com/",
-        "http://news.sina.com.cn/",
-        "http://news.baidu.com/",
-        "http://news.qq.com/",
-        "http://news.ifeng.com/"
+        #"http://news.163.com/",
+        #"http://www.163.com/",
+        #"http://news.sina.com.cn/",
+        #"http://news.baidu.com/",
+        #"http://news.qq.com/",
+        #"http://news.ifeng.com/"
+        "http://www.wooyun.org"
         ]
     concurrency = 64
     
@@ -85,11 +86,11 @@ class TornadoBaseLocust(BaseLocut):
         return response
         
     @gen.coroutine
-    def visit(self,url):
+    def visit(self,request):
         """
             访问某个网页
         """
-        request = TornadoRequestBuilder.build_request(url,self.header_manager.headers)
+        #request = TornadoRequestBuilder.build_request(url,self.header_manager.headers)
         try:
             response = yield CurlAsyncHTTPClient().fetch(request)                               
             raise gen.Return(response)            
@@ -110,15 +111,15 @@ class TornadoBaseLocust(BaseLocut):
         """
         while True:
             try:    
-                task = yield self.get_from_queue()            
-                response = yield self.visit(task.url)
+                request = yield self.get_from_queue()            
+                response = yield self.visit(Build2TornadoRequest.build_request(request))
                 NormalTaskQueue.queue.task_done()
                 self.Load_factor += 1  
                 if not isinstance(response,HTTPResponse):
-                    print "we need HTTPResponse instance from[%s],not [%s]" % (task.url,type(response))
+                    print "we need HTTPResponse instance from[%s],not [%s]" % (request.url,type(response))
                     continue
                 locust_response = TornadoResponseBuilder.build_response(response)            
-                yield getattr(self,task.callback)(locust_response) 
+                yield getattr(self,request.callback)(locust_response) 
             except Exception as e:
                 print "[FatalError] %s" % traceback.format_exc()
              
@@ -142,9 +143,7 @@ class TornadoBaseLocust(BaseLocut):
         """
 
         links =  response.xpath("//a/@href")
-        a = [1,2,3,4,5]
-        print a[8]
-        yield [self.send_request(WebLocustRequest(response.urljoin(link),"parse_one")) for link in links]
+        yield [self.send_request(Request(response.urljoin(link),callback="parse_one")) for link in links]
     
     @gen.coroutine
     def parse_one(self,response):
@@ -153,10 +152,10 @@ class TornadoBaseLocust(BaseLocut):
         #links =  response.xpath("//a/@href")
         #yield [self.send_request(WebLocustRequest(link,"final_page")) for link in links]
         a = response.xpath("//title/text()")
-        #if a:
-        #    print "\t",response.url,"\t",a[0]   
-        #else:
-        #    print "###############################################################"
+        if a:
+            print "\t",response.url,"\t",a[0]   
+        else:
+            print "###############################################################"
 
             
             
@@ -195,7 +194,7 @@ class TornadoBaseLocust(BaseLocut):
         #for url in self.start_urls:
         #    yield self.put2queue(WebLocustRequest(url,"parse"))
         #
-        yield [self.put2queue(WebLocustRequest(url,"parse")) for url in self.start_urls]
+        yield [self.put2queue(Request(url,callback="parse")) for url in self.start_urls]
     
     
     @gen.coroutine
