@@ -1,0 +1,60 @@
+<div class="panel panel-primary" ng-controller="SysInfoController">
+      <div class="panel-heading">
+        <h3 class="panel-title">cluster status </h3>
+      </div>
+      <div class="panel-body">
+      
+        <ul class="list-group">
+          <li class="list-group-item">
+            <span class="badge">[$ queue_length $]</span>
+            <span class="glyphicon glyphicon-refresh"  style="cursor:pointer" aria-hidden="true" ng-click="refresh_tracing()"></span>
+            <span class="glyphicon glyphicon-play" style="background-color:[$ auto_refreshing $];cursor:pointer" aria-hidden="true" ng-click="start_tracing()"></span>
+            <span class="glyphicon glyphicon-stop" style="cursor:pointer" aria-hidden="true" ng-click="stop_tracing()"></span>
+            queue length 
+          </li>
+        </ul>
+
+        <ul class="list-group">
+          <li class="list-group-item">
+            <span class="badge">300</span>
+            request per second 
+          </li>
+        </ul>        
+
+        
+       <ul class="list-group">
+          <p color='red'>HTTP Status Code</p>
+          <li class="list-group-item">
+            <span class="badge">124</span>
+            200
+          </li>
+          <li class="list-group-item">
+            <span class="badge">31</span>
+            3xx
+          </li> 
+          
+          <li class="list-group-item">
+            <span class="badge">3</span>
+            4xx
+          </li>            
+
+          <li class="list-group-item">
+            <span class="badge">23</span>
+            5xx
+          </li>   
+          
+        </ul>  
+
+        <ul class="list-group">
+          <p color='red'>System Infomation</p>
+          <li class="list-group-item">
+            redis&nbsp;&nbsp;server: 10.0.0.1
+          </li>
+          <li class="list-group-item">
+            phantomjs agent: 10.0.0.8
+          </li>          
+        </ul>   
+
+        
+      </div>
+</div>

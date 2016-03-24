@@ -1,0 +1,64 @@
+<table class="table" ng-controller="NodesController">
+      <caption>node status watcher </caption>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>role</th>
+          <th>ip</th>
+          <th>qps</th>
+          <th>operation</th>
+        </tr>
+      </thead>
+      
+      <tbody>
+        <tr ng-repeat="node in nodes">
+          <th scope="row">[$ $index $]</th>
+          <td>[$ node.role $]</td>
+          <td>[$ node.ip $]</td>
+          <td>[$ node.qps $]</td>
+          <th>
+              <button class="btn btn-danger" ng-disabled="node.is_started" ng-click="locuststart($index)">
+               start 
+              </button> 
+
+              <button class="btn btn-danger" ng-disabled="! node.is_started" ng-click="locuststop($index)">
+               stop 
+              </button> 
+              
+              <a class="btn btn-primary" ng-disabled="node.is_paused" ng-click="locustpause($index)">
+                pause
+              </a>     
+              
+              <a class="btn btn-primary" ng-disabled="! node.is_paused" ng-click="locustresume($index)">
+                resume
+              </a>
+             
+          </th>
+        </tr>
+
+      </tbody>
+</table>
+
+
+<div  class="col-md-12"  ng-controller="IndexControler">
+    
+    
+    <div contentEditable="true" ng-model="editMe">Edit Me</div>
+    
+    <input ng-model="userInput" type="integer" required>
+    
+    
+    <select  ng-model="selection" ng-options="o for o in option"></select>
+    <p>[$ userInput $]的选择是[$ selection $]</p>
+    [$ userInput $] [$ editMe $]
+    
+    <input ng-model='conditon'>
+    <p>
+        <ul>
+            <li ng-repeat="b in band | filter : conditon ">[$b$]</li>
+        </ul>
+    [$ band | filter:conditon $]
+    </p>
+    
+    
+</div>

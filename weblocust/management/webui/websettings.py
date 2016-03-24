@@ -10,7 +10,8 @@ configure = {
     
     "login_url": "/login",
     
-    "xsrf_cookies": True,
+    # disable xsrf protection
+    #"xsrf_cookies": True,
     
     "static_path": os.path.join(os.path.dirname(__file__), "static"),
     

@@ -1,7 +1,17 @@
 #coding:utf-8
+# weblocust naming rules:
+#   instance attribute type       instance_attribute 
+#   instance method type          instance_method
+#   class attribute               class_attribute 
+#   class method                  class_method
+#   method and attribute that not recommanded to use in client code    _instance_method
+
 
 import time 
 import random
+import traceback
+import importlib
+
 from socket import gaierror
 from datetime import timedelta 
 from HTMLParser import HTMLParser
@@ -14,30 +24,24 @@ from tornado.httpclient import HTTPRequest,HTTPResponse
 from tornado.curl_httpclient import CurlAsyncHTTPClient
 from tornado.httputil import HTTPHeaders
 
-from .httpclient import TornadoRequestBuilder,TornadoHttpclientHeaderManager
-from .httpclient import WebLocustRequest,TornadoResponseBuilder,Request,Build2TornadoRequest
-
+from .httpclient import TornadoResponseBuilder,Request,Build2TornadoRequest
 from .taskqueue import *
-import traceback
+from . import SigleInstance
+
 
 
 CurlAsyncHTTPClient.configure(None, defaults=dict(max_clients=200))
 
-class BaseLocut(object):
-    """
-    """
-    start_urls = []
-    
-    def request(self,url):
-        """
-        """
-        raise NotImplementedError
+        
 
-class TornadoBaseLocust(BaseLocut):
+class TornadoBaseLocust(object):
     """
         基于tornado的爬虫父类
+        以 "_" 开头的方法客户端代码尽量不要调用，这些代码为框架调用
     """
-    start_url = "http://news.163.com/"
+    
+    
+    name = "tornado_base_locust"
     start_urls = [
         #"http://news.163.com/",
         #"http://www.163.com/",
@@ -47,50 +51,30 @@ class TornadoBaseLocust(BaseLocut):
         #"http://news.ifeng.com/"
         "http://www.wooyun.org"
         ]
-    concurrency = 64
+    concurrency = 1
     
-    header_manager = TornadoHttpclientHeaderManager()
+    task_queue_type = "RedisTaskQueue"
     
-    COOKIE_ENABLE = False
+    __load_factor = 0
+
+    __keep_runing = False  
     
-    Load_factor = 0
+    __metaclass__ = SigleInstance
     
-    def __init__(self):
-        self.before_start()
     
-    def handle_cookie(self,response,froce = False):
-        """
-            处理cookie问题
-        """
-        if self.COOKIE_ENABLE:
-            self.header_manager.add_cookie(response.headers.get_list("Set-Cookie"))
-        elif froce:
-            self.header_manager.add_cookie(response.headers.get_list("Set-Cookie"))
     
 
-    def before_start(self):
-        """
-            这个函数必须让他阻塞，因为它带回cookie，后面才能继续操作
-            有个问题是：
-                启动的时候，这个方法只需要执行一次，并不是每次定时启动时都要经历这个步骤。
-                所以，最好就是：开始启动时就执行一次，以后都不要执行了。
-            所以实例化这个类的时候，直接调用这个函数。
-            
-            ##
-            #要不要把start_urls里面的url都访问一遍ne?
-            ##
-        """
-        request = TornadoRequestBuilder.build_request(self.start_url,self.header_manager.headers)
-        response =  httpclient.HTTPClient().fetch(request)
-        self.handle_cookie(response)
-        return response
-        
+    def __init__(self):
+        queuelib = importlib.import_module("weblocust.core.taskqueue")
+        self._taskqueue = getattr(queuelib,self.task_queue_type)()
+        self.before_start()
+             
     @gen.coroutine
-    def visit(self,request):
+    def _visit(self,request):
         """
             访问某个网页
+            request 必须是一个 weblocust.core.httpclient.Request
         """
-        #request = TornadoRequestBuilder.build_request(url,self.header_manager.headers)
         try:
             response = yield CurlAsyncHTTPClient().fetch(request)                               
             raise gen.Return(response)            
@@ -105,34 +89,132 @@ class TornadoBaseLocust(BaseLocut):
 
         
     @gen.coroutine
-    def consumer(self):
+    def _consumer(self):
         """
             消费者
+            首先从队列当中获得请求
+            将请求转换为tornado当中的请求
+            
+            访问页面，收到response
         """
         while True:
             try:    
-                request = yield self.get_from_queue()            
-                response = yield self.visit(Build2TornadoRequest.build_request(request))
-                NormalTaskQueue.queue.task_done()
-                self.Load_factor += 1  
-                if not isinstance(response,HTTPResponse):
-                    print "we need HTTPResponse instance from[%s],not [%s]" % (request.url,type(response))
+                request = yield self._get_from_queue()
+                if not isinstance(request,Request):
+                    """ filter out illegal request """
+                    print "Request instance requried,rather than %s" % type(request)
                     continue
-                locust_response = TornadoResponseBuilder.build_response(response)            
-                yield getattr(self,request.callback)(locust_response) 
+                
+                tornado_request = Build2TornadoRequest.build_request(request)
+                tornado_response = yield self._visit(tornado_request)
+                self.__load_factor += 1  
+                
+                if not isinstance(tornado_response,HTTPResponse):
+                    """ filter out illegal response """
+                    print "we need HTTPResponse instance from[%s],not [%s]" % (request.url,type(tornado_response))
+                    continue
+                
+                response = TornadoResponseBuilder.build_response(tornado_response)
+                yield getattr(self,request.callback)(response) 
             except Exception as e:
                 print "[FatalError] %s" % traceback.format_exc()
              
     @gen.coroutine
-    def start_consumers(self):
+    def _start_consumers(self):
         """
             批量的异步作业时，需要一起yield，否则第一个任务阻塞了，后面的任务都没法加入ioloop
             但是有个问题：
-                如果一起yield，如果list当中的任何一个yield发生exception，将不会被及时抛出！！！
-                <所以最好在每个协程里面处理异常>
+            如果一起yield，如果list当中的任何一个yield发生exception，将不会被及时抛出！！！
+            所以最好在每个协程里面处理异常
         """
-        yield [self.consumer() for _ in range(self.concurrency)]
+        yield [self._consumer() for _ in range(self.concurrency)]
+
+
+    @timer(interval=5,lifespan=10*356*24*60*60)
+    @gen.coroutine
+    def _status_watcher(self):
+        """
+            每5s的任务情况统计器
+        """
+        is_alive = True 
+        load_factor = self.__load_factor
+        concurrency = self.concurrency 
+        working = True 
+        is_avaliable=True 
+        
+        self.__load_factor = 0  
+                  
+    #@timer(interval=1*10,lifespan=300)
+    @gen.coroutine
+    def _start(self):
+        """
+            添加初始任务，slave 节点不应该调用这个方法
+        """       
+        #往队列当中构造任务
+        yield [self._put2queue(Request(url,callback="parse")) for url in self.start_urls]
     
+    def _hello(self):
+        """
+            向master打招呼
+        """
+        pass
+        
+    @gen.coroutine
+    def _put2queue(self,request):
+        """
+        封装往队列中添加任务
+        """
+        ack = yield self._taskqueue.put(request)
+        raise gen.Return(ack)
+        
+
+    
+    @gen.coroutine    
+    def _get_from_queue(self):
+        """
+        封装从queue当中获取任务
+        """
+        while not self.__keep_runing:
+            #print "__keep_running signal is false"
+            yield gen.sleep(3)
+            
+        task = yield self._taskqueue.get()
+        raise gen.Return(task)
+
+
+    def current(self):
+        """ """
+        return self._instance
+    
+    def pause(self):
+        """ """
+        self.__keep_runing = False
+    
+    def resume(self):
+        self.__keep_runing = True 
+        
+    @gen.coroutine
+    def send_request(self,request):
+        """
+        功能和 self._put2queue一样，只是这个函数封装给客户端代码调用
+        """
+        ack = yield self._put2queue(request)
+        raise gen.Return(ack)
+                
+    def runlocust(self):
+        IOLoop.current().spawn_callback(self._start)
+        IOLoop.current().spawn_callback(self._start_consumers)
+        IOLoop.current().spawn_callback(self._status_watcher)
+        
+        
+    def before_start(self):
+        """
+            这个函数是一个阻塞函数，因为后面的操作可能会依赖这个结果;
+            这个函数在类实例化的时候被调用
+            
+        """
+        pass
+            
     @gen.coroutine
     def parse(self,response):
         """
@@ -143,76 +225,17 @@ class TornadoBaseLocust(BaseLocut):
         """
 
         links =  response.xpath("//a/@href")
-        yield [self.send_request(Request(response.urljoin(link),callback="parse_one")) for link in links]
+        
+        yield [self.send_request(Request(
+                                        response.urljoin(link),
+                                        cookie = response.cookie,
+                                        callback="parse_one")
+                                ) for link in links]
     
     @gen.coroutine
     def parse_one(self,response):
-        #print response.request_time,response.url
-        #print response.xpath("//title/text()")
-        #links =  response.xpath("//a/@href")
-        #yield [self.send_request(WebLocustRequest(link,"final_page")) for link in links]
         a = response.xpath("//title/text()")
         if a:
-            print "\t",response.url,"\t",a[0]   
-        else:
-            print "###############################################################"
+            print a[0]
 
-            
-            
-    @gen.coroutine
-    def final_page(self,response):
-        """
-            producer
-        """
-        pass
-    
-    @timer(interval=5,lifespan=10*356*24*60*60)
-    @gen.coroutine
-    def status_watcher5s(self):
-        """
-            每5s的任务情况统计器
-        """
-        for _ in range(self.Load_factor/5):
-            print "-",
-        print self.Load_factor/5 
-        self.Load_factor = 0  
-    
-    #@gen.coroutine
-    #def status_watcher(self):
-    #    for _ in range(self.Load_factor/5):
-    #        print "-",
-    #    print self.Load_factor 
-    #    self.Load_factor = 0          
-     
-    #@timer(interval=1*60*60,lifespan=200)
-    @gen.coroutine
-    def start(self):
-        """
-            启动爬虫程序
-        """       
-        #往队列当中构造任务
-        #for url in self.start_urls:
-        #    yield self.put2queue(WebLocustRequest(url,"parse"))
-        #
-        yield [self.put2queue(Request(url,callback="parse")) for url in self.start_urls]
-    
-    
-    @gen.coroutine
-    def put2queue(self,request):
-        ack = yield NormalTaskQueue.put(request)
-        raise gen.Return(ack)
-        
-    @gen.coroutine
-    def send_request(self,request):
-        ack = yield self.put2queue(request)
-        raise gen.Return(ack)
-    
-    @gen.coroutine    
-    def get_from_queue(self):
-        task = yield NormalTaskQueue.get()
-        raise gen.Return(task)
                
-    def addto_noblocking(self):
-        IOLoop.current().spawn_callback(self.start)
-        IOLoop.current().spawn_callback(self.start_consumers)
-        IOLoop.current().spawn_callback(self.status_watcher5s)

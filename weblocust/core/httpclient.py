@@ -1,24 +1,14 @@
 #coding:utf-8
-from . import SigleInstance
+#from . import SigleInstance
 from tornado.httputil import HTTPHeaders
 from tornado.httpclient import HTTPRequest
 from lxml import etree
 from w3lib.encoding import html_to_unicode, resolve_encoding,html_body_declared_encoding, http_content_type_encoding
 import urlparse
 import cookielib
+import urllib
 
-class WebLocustRequest(object):
-    def __init__(self,url,callback):
-        self.url = url
-        self.callback = callback
 
-#class Headers(HTTPHeaders):
-#    """
-#        in order to user CookieJar,
-#        implement the header instance with getallmatchingheaders(name) method
-#    """
-#    def getallmatchingheaders(self,name):
-#        return self.get_list(name)
 
 
 class Request(object):
@@ -50,147 +40,55 @@ class Request(object):
         for k,v in kwargs.items():
             setattr(self,k,v) 
             
-    def get_full_url(self):
-        return self.url
-    
-    def get_host(self):
-        """ find the server hostname """
-        return urlparse.urlparse(self.url).hostname
-        
-    def unverifiable(self):
-        return False 
-    
-    def is_unverifiable():
-        return self.unverifiable() 
-    
-    def get_origin_request_host(self):
-        self.get_host()
-        
-        
+
+              
 
 class RequestBuilder(object):
     """
         request 构造的接口类
+        这个类的职责是：将weblocust当中的requet类，转换为其他框架当中的request
     """
     #__metaclass__ = SigleInstance
     
     @classmethod
-    def build_request(cls,url,cookie=None):
+    def build_request(cls,request):
         """
             返回一个request对象
         """
         raise NotImplementedError
 
-class Build2TornadoRequest(object):
-
+class Build2TornadoRequest(RequestBuilder):
+    """
+        将请求构造为一个tornado的请求
+    """
     @classmethod
-    def build_request(cls,request,response=None):
+    def build_request(cls,request):
         """
-            if request is added , request will be built with cookie enabled 
+            keep it's duty simple
         """
         default_headers_info = {
                 "Accept":"text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
                 "Accept-Encoding":"gzip, deflate, sdch",
                 "Accept-Language":"zh-CN,zh;q=0.8,en;q=0.6",
                 "Connection":"keep-alive",
-                "Cookie":None,
+                "Cookie":request.cookie,
                 "User-Agent":request.user_agent,       
-            }
-            
-        if response:
-            cookie_jar = cookielib.CookieJar(policy=cookielib.DefaultCookiePolicy())
-            cookies = cookie_jar.make_cookies(response,request)
-            print "the cookies is type of [%s]" % type(cookies)
-            default_headers_info["Cookie"] = ";".join(cookies) 
+            }           
                     
         headers =  HTTPHeaders(default_headers_info)
-        
-        return HTTPRequest(request.url,headers=headers,follow_redirects=True,max_redirects=5,request_timeout=3)
+       
+        post_data = urllib.urlencoding(request.data) if request.data else None
+  
+        return HTTPRequest(request.url,
+                            method=request.method,
+                            headers=headers,
+                            body = post_data,
+                            follow_redirects=True,
+                            max_redirects=5,
+                            request_timeout=3)
 
-class TornadoRequestBuilder(RequestBuilder):
-    """
-        tornado request 创造者
-    """
-    @classmethod
-    def build_request(cls,url,headers):
-        return HTTPRequest(url,headers=headers,follow_redirects=True,max_redirects=5,request_timeout=2)
-            
 
-class HeaderBuilder(object):
-    """
-        是否应该使用单列模式呢？
-        如果整个ioloop当中仅仅只有一只爬虫在运行，那么无所谓
-        如果有多只爬虫在跑，那么将会造成cookie等东西混乱
-    """
-    #__metaclass__ = SigleInstance
-    
-    def build_header(cls,user_agent,cookie):
-        """
-            应该就需要userage 和cookie
-        """
-        raise NotImplementedError
-        
-    def add_cookie(self,cookie):
-        """
-        """
-        raise NotImplementedError
-        
-    def alter_useragent(self,user_agent):
-        """
-        """
-        raise NotImplementedError
-    
-    @property
-    def headers(self):
-        """
-        """ 
-        raise NotImplementedError 
-        
-
-class TornadoHttpclientHeaderManager(HeaderBuilder):
-    """
-    """
-    default_headers = {
-        "Accept":"text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Encoding":"gzip, deflate, sdch",
-        "Accept-Language":"zh-CN,zh;q=0.8,en;q=0.6",
-        "Connection":"keep-alive",
-        "Cookie":"",
-        "User-Agent":"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Ubuntu Chromium/48.0.2564.116 Chrome/48.0.2564.116 Safari/537.36",         
-    }    
-    def add_cookie(self,cookie):
-        """
-            cookie实例：
-            [
-                '__cfduid=d91d42345b0e1eacce8110aa7a67e0b111458022618; expires=Wed, 15-Mar-17 06:16:58 GMT; path=/; domain=.wooyun.org; HttpOnly',
-                'PHPSESSID=i7sm27865ja25o0ba516vd9fi5; path=/'
-             ]
-
-        """
-        self.default_headers["Cookie"] += ";".join(cookie)
-
-    def update_cookie(self,cookie):
-        self.default_headers["Cookie"] = ";".join(cookie)
-    
-    def alter_useragent(self,user_agent):
-        self.default_headers["User-Agent"] = user_agent
-    
-    @property
-    def headers(self):
-        
-        header =  HTTPHeaders(self.default_headers)
-        #self.echo_headers(header)
-        return header
-    
-    @classmethod
-    def config(cls,**kwargs):
-        cls.default_headers = dict(cls.default_headers,**kwargs)
-        
-    def echo_headers(self,headers):
-        print "*********************"
-        for k,v in headers.get_all():
-            print "%s :%s "% (k,v)
-        print "<<<<<<<<<<<<<<<<<<<<<"        
+                   
 
 
 #######################################
@@ -208,6 +106,20 @@ class Response(object):
             
     def xpath(self,query):
         """
+            xpath 当中的黑科技：
+            contains是一个字符串查找函数
+            　　语法是：fn:contains(string1,string2)，
+                表示如果 string1 包含 string2，则返回 true，否则返回 false。
+            　　例如：contains('XML','XM')，结果：true。
+             
+            match是一个匹配正则表达式的函数
+            　　语法是：fn:matches(string,pattern)，
+                表示如果 string 参数匹配指定的模式，则返回 true，否则返回 false。
+            　　例如：matches("12", "[0-9]{1,2}"), 结果：true。
+            
+            starts-with是一个字符串查找函数
+            　　语法是：fn:starts-with(string,pattern)，
+                表示如果 string 参数匹配指定的模式，则返回 true，否则返回 false。        
         """
         return self.dom.xpath(query)
     
@@ -227,27 +139,6 @@ class Response(object):
         else:
             raise AttributeError("DOM has no method or attribute like %s" % operation)
     
-          
-    def info(self):
-        """
-            In order to use CookieJar,we must implement the method 
-            
-            returns an object with a getallmatchingheaders() method (usually a mimetools.Message instance).
-            def getallmatchingheaders(self,name):
-                Return a list of lines consisting of all headers matching name,if any. 
-                Each physical line, whether it is a continuation line or not, is a separate list item. 
-                Return the empty list if no header matches name.
-                
-            tornado_response.headers
-        """
-        
-        headers = self.headers
-        
-        def getallmatchingheaders(self,name):
-            return self.get_list(name)
-        settattr(headers,getallmatchingheaders)
-        
-        return headers
 
 class ResponseBuilder(object):
     """
@@ -295,6 +186,8 @@ class TornadoResponseBuilder(ResponseBuilder):
         page_source = response.body
         try:
             dom = etree.HTML(page_source.decode(page_encoding,'ignore'))
+        except ValueError:
+            dom = etree.fromstring(page_source)
         except UnicodeDecodeError as e:            
             dom = etree.HTML("<html><head><title>NotAValidHTMLPage</title></head></html>".decode("utf-8"))
         return dom         
@@ -307,10 +200,7 @@ class TornadoResponseBuilder(ResponseBuilder):
         rtt = tornado_response.request_time  
         code = tornado_response.code
         cookie = ";".join(tornado_response.headers.get_list("Set-Cookie"))
-        headers = tornado_response.headers 
-        ## cookie的样子：
-        # ['a=b,c=2','d=123,d=232']
-        ##            
+        headers = tornado_response.headers         
         return Response(url,dom,rtt=rtt,code = code,cookie=cookie,headers=headers)
         
         

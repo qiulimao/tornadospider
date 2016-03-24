@@ -13,6 +13,10 @@ def tornadoweb(port=9999):
     """
     app = tornado.web.Application(urlpatterns,**configure)
     app.listen(port)
-    locust = TornadoBaseLocust().addto_noblocking()   
+    
+    #locust = TornadoBaseLocust()
+    #locust.runlocust()
+
     tornado.ioloop.IOLoop.current().start()
+
     

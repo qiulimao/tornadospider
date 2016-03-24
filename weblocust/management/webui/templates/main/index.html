@@ -1,26 +1,20 @@
 {% extends '../base/base.html' %}
 
 {% block pagebody %}
- 
- <div ng-app="home" ng-controller="IndexControler">
-     
-     
-     <div contentEditable="true" ng-model="editMe">Edit Me</div>
-     <input ng-model="userInput" type="integer" required>
-     
-     
-     <select  ng-model="selection" ng-options="o for o in option"></select>
-     <p>[$ userInput $]的选择是[$ selection $]</p>
-     [$ userInput $] [$ editMe $]
-     
-     <input ng-model='conditon'>
-     <p>
-         <ul>
-             <li ng-repeat="b in band | filter : conditon ">[$b$]</li>
-         </ul>
-     [$ band | filter:conditon $]
-     </p>
+ <div class="container" ng-app="home">
+     <div class="row">
+        <div class="col-md-8 col-sm-8" id="node-status">
+             {% include 'node_status.html' %}
+        </div><!--for node-status -->
+        
+        <div class="col-md-4 col-sm-4" id='cluster-status'>
+            {% include 'cluster_status.html' %}
+        </div><!-- for cluster-status -->        
+        
+     </div>
  </div>
+ 
+
  
  <script type="text/javascript" src="{{ static_url('js/index/IndexControler.js') }}"></script>
 {% end %}
