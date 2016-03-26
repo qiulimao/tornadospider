@@ -11,6 +11,9 @@ import time
 import random
 import traceback
 import importlib
+import commands
+import tornadis 
+import urllib 
 
 from socket import gaierror
 from datetime import timedelta 
@@ -43,22 +46,22 @@ class TornadoBaseLocust(object):
     
     name = "tornado_base_locust"
     start_urls = [
-        #"http://news.163.com/",
-        #"http://www.163.com/",
-        #"http://news.sina.com.cn/",
-        #"http://news.baidu.com/",
-        #"http://news.qq.com/",
-        #"http://news.ifeng.com/"
+        "http://news.163.com/",
+        "http://www.163.com/",
+        "http://news.sina.com.cn/",
+        "http://news.baidu.com/",
+        "http://news.qq.com/",
+        "http://news.ifeng.com/"
         "http://www.wooyun.org"
         ]
-    concurrency = 1
+    concurrency = 32
     
     task_queue_type = "RedisTaskQueue"
     
     __load_factor = 0
 
     __keep_runing = False  
-    
+    _runing = False
     __metaclass__ = SigleInstance
     
     
@@ -67,6 +70,12 @@ class TornadoBaseLocust(object):
     def __init__(self):
         queuelib = importlib.import_module("weblocust.core.taskqueue")
         self._taskqueue = getattr(queuelib,self.task_queue_type)()
+        self._redis_client = tornadis.Client(host="localhost",port=6379,autoconnect=True)
+        self._ip = commands.getoutput("hostname -I").strip()
+        self._port = random.randrange(1000,65535)
+        
+        IOLoop.current().spawn_callback(self._status_watcher)
+        
         self.before_start()
              
     @gen.coroutine
@@ -130,18 +139,26 @@ class TornadoBaseLocust(object):
         yield [self._consumer() for _ in range(self.concurrency)]
 
 
-    @timer(interval=5,lifespan=10*356*24*60*60)
+    @timer(interval=3,lifespan=10*356*24*60*60)
     @gen.coroutine
     def _status_watcher(self):
         """
+            这个函数在初始化的时候就已经被调用了
             每5s的任务情况统计器
         """
-        is_alive = True 
-        load_factor = self.__load_factor
-        concurrency = self.concurrency 
-        working = True 
-        is_avaliable=True 
+        node_info = {
+            "role":"master",
+            "running":self._runing ,
+            "paused":not self.__keep_runing,
+            "load_factor":self.__load_factor/3,
+            "concurrency":self.concurrency,
+            "ip":self._ip,
+            "port":self._port,
+        }
         
+        request= HTTPRequest("http://localhost/infocenter",method="POST",body=urllib.urlencode(node_info))
+
+        resp = yield CurlAsyncHTTPClient().fetch(request)     
         self.__load_factor = 0  
                   
     #@timer(interval=1*10,lifespan=300)
@@ -153,11 +170,6 @@ class TornadoBaseLocust(object):
         #往队列当中构造任务
         yield [self._put2queue(Request(url,callback="parse")) for url in self.start_urls]
     
-    def _hello(self):
-        """
-            向master打招呼
-        """
-        pass
         
     @gen.coroutine
     def _put2queue(self,request):
@@ -192,7 +204,10 @@ class TornadoBaseLocust(object):
     
     def resume(self):
         self.__keep_runing = True 
-        
+    
+    def restart(self):
+        IOLoop.current().spawn_callback(self._start)
+    
     @gen.coroutine
     def send_request(self,request):
         """
@@ -202,9 +217,10 @@ class TornadoBaseLocust(object):
         raise gen.Return(ack)
                 
     def runlocust(self):
+        self._runing = True
         IOLoop.current().spawn_callback(self._start)
         IOLoop.current().spawn_callback(self._start_consumers)
-        IOLoop.current().spawn_callback(self._status_watcher)
+        #IOLoop.current().spawn_callback(self._status_watcher)
         
         
     def before_start(self):

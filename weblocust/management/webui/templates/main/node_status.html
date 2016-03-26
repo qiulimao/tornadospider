@@ -1,10 +1,11 @@
-<table class="table" ng-controller="NodesController">
+<table class="table">
       <caption>node status watcher </caption>
       <thead>
         <tr>
           <th>#</th>
           <th>role</th>
           <th>ip</th>
+          <th>port</th>
           <th>qps</th>
           <th>operation</th>
         </tr>
@@ -15,21 +16,22 @@
           <th scope="row">[$ $index $]</th>
           <td>[$ node.role $]</td>
           <td>[$ node.ip $]</td>
-          <td>[$ node.qps $]</td>
+          <td>[$ node.port $]</td>
+          <td> <span class="badge" style="background:#6f00d2;">[$ node.load_factor $]</span></td>
           <th>
-              <button class="btn btn-danger" ng-disabled="node.is_started" ng-click="locuststart($index)">
+              <button class="btn btn-danger" ng-disabled="node.running" ng-click="locuststart($index)">
                start 
               </button> 
 
-              <button class="btn btn-danger" ng-disabled="! node.is_started" ng-click="locuststop($index)">
-               stop 
+              <button class="btn btn-danger" ng-disabled="! node.running" ng-click="locustrestart($index)">
+               restart 
               </button> 
               
-              <a class="btn btn-primary" ng-disabled="node.is_paused" ng-click="locustpause($index)">
+              <a class="btn btn-primary" ng-disabled="node.paused" ng-click="locustpause($index)">
                 pause
               </a>     
               
-              <a class="btn btn-primary" ng-disabled="! node.is_paused" ng-click="locustresume($index)">
+              <a class="btn btn-primary" ng-disabled="! node.paused" ng-click="locustresume($index)">
                 resume
               </a>
              
@@ -39,6 +41,7 @@
       </tbody>
 </table>
 
+<!--
 
 <div  class="col-md-12"  ng-controller="IndexControler">
     
@@ -62,3 +65,5 @@
     
     
 </div>
+
+-->

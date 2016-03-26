@@ -5,7 +5,7 @@ import tornado.web
 from .urls import urlpatterns
 from .websettings import configure
 from weblocust.core.locusts import TornadoBaseLocust
-
+from weblocust.core.msgdealer import SlaveDetector
     
 def tornadoweb(port=9999):
     """
@@ -14,8 +14,8 @@ def tornadoweb(port=9999):
     app = tornado.web.Application(urlpatterns,**configure)
     app.listen(port)
     
-    #locust = TornadoBaseLocust()
-    #locust.runlocust()
+    locust = TornadoBaseLocust()
+    SlaveDetector().start()
 
     tornado.ioloop.IOLoop.current().start()
 

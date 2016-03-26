@@ -2,7 +2,7 @@
 
 {% block pagebody %}
  <div class="container" ng-app="home">
-     <div class="row">
+     <div class="row" ng-controller="SystemController">
         <div class="col-md-8 col-sm-8" id="node-status">
              {% include 'node_status.html' %}
         </div><!--for node-status -->
