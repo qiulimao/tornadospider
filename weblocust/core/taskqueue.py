@@ -5,6 +5,9 @@ from . import SigleInstance
 import tornadis 
 from .httpclient import Request
 import json
+from weblocust.util.db import RedisConnection,RedisPipeline
+from . import SigleInstance
+from weblocust import settings
 
 class TaskQueue(object):
     """
@@ -47,23 +50,21 @@ class RedisTaskQueue(TaskQueue):
     this queue use redis the memory database;by this way ,
     this framework turn into a distribute system be possible
     """
-    def __init__(self,host="localhost",port=6379):
-        """
-        为了和其它queue初始化一样，这里初始化传入的参数应该尽量做到一致
-        """
-        self.client = tornadis.Client(host="localhost",port=6379,autoconnect=True)
-    
+    #__metaclass__ = SigleInstance
+    def __init__(self,queue_name):
+        self.queue_name = queue_name
+
     @gen.coroutine    
     def get(self):
         """
         get a request instance from queue
         """
-        r = yield self.client.call("LPOP","request_queue")
+        r = yield RedisConnection().call("LPOP",self.queue_name)
         while not r:
             # 没有任务的情况下肯定会阻塞，所以暂时交出控制权
             # 只有一条redis链接，这里要是阻塞了，所有的都会阻塞。所以没有用BLPOP
-            yield gen.sleep(1)
-            r = yield self.client.call("LPOP","request_queue")
+            yield gen.sleep(2)
+            r = yield RedisConnection().call("LPOP",self.queue_name)
             
             
         if isinstance(r,tornadis.TornadisException):
@@ -88,6 +89,12 @@ class RedisTaskQueue(TaskQueue):
         """
         r = request.__dict__
         req = json.dumps(r)
-        ack = yield self.client.call("rpush","request_queue",req)
+        ack = yield RedisConnection().call("rpush",self.queue_name,req)
         raise gen.Return(ack)
+
+    @gen.coroutine
+    def qsize(self):
+        yield RedisConnection().call("expire",self.queue_name,1*60*60)
+        qsize = yield RedisConnection().call("llen",self.queue_name)
+        raise gen.Return(qsize)
         

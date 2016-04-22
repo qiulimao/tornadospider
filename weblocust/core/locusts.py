@@ -22,6 +22,7 @@ from urlparse import urljoin,urldefrag
 from tornado import httpclient,gen,ioloop,queues
 from tornado.ioloop import IOLoop
 
+from weblocust import settings
 from weblocust.core import timer,crontab
 from tornado.httpclient import HTTPRequest,HTTPResponse
 from tornado.curl_httpclient import CurlAsyncHTTPClient
@@ -43,8 +44,11 @@ class TornadoBaseLocust(object):
         以 "_" 开头的方法客户端代码尽量不要调用，这些代码为框架调用
     """
     
-    
+    __metaclass__ = SigleInstance
+
+
     name = "tornado_base_locust"
+
     start_urls = [
         "http://news.163.com/",
         "http://www.163.com/",
@@ -54,7 +58,8 @@ class TornadoBaseLocust(object):
         "http://news.ifeng.com/"
         "http://www.wooyun.org"
         ]
-    concurrency = 32
+
+    concurrency = settings.CONCURRENCY
     
     task_queue_type = "RedisTaskQueue"
     
@@ -62,15 +67,16 @@ class TornadoBaseLocust(object):
 
     __keep_runing = False  
     _runing = False
-    __metaclass__ = SigleInstance
+    
     
     
     
 
     def __init__(self):
+
         queuelib = importlib.import_module("weblocust.core.taskqueue")
-        self._taskqueue = getattr(queuelib,self.task_queue_type)()
-        self._redis_client = tornadis.Client(host="localhost",port=6379,autoconnect=True)
+        self._taskqueue = getattr(queuelib,self.task_queue_type)(__name__)
+        print __name__
         self._ip = commands.getoutput("hostname -I").strip()
         self._port = random.randrange(1000,65535)
         
@@ -146,17 +152,20 @@ class TornadoBaseLocust(object):
             这个函数在初始化的时候就已经被调用了
             每5s的任务情况统计器
         """
+        qsize = yield self._taskqueue.qsize()
+
         node_info = {
-            "role":"master",
+            "role":"master" if self._ip == settings.MASTER_ADDRESS else "slave",
             "running":self._runing ,
             "paused":not self.__keep_runing,
             "load_factor":self.__load_factor/3,
             "concurrency":self.concurrency,
             "ip":self._ip,
             "port":self._port,
+            "qsize":qsize
         }
         
-        request= HTTPRequest("http://localhost/infocenter",method="POST",body=urllib.urlencode(node_info))
+        request= HTTPRequest("http://%s/infocenter" % settings.MASTER_ADDRESS,method="POST",body=urllib.urlencode(node_info))
 
         resp = yield CurlAsyncHTTPClient().fetch(request)     
         self.__load_factor = 0  
@@ -187,7 +196,6 @@ class TornadoBaseLocust(object):
         封装从queue当中获取任务
         """
         while not self.__keep_runing:
-            #print "__keep_running signal is false"
             yield gen.sleep(3)
             
         task = yield self._taskqueue.get()

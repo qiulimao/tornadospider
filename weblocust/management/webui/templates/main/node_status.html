@@ -7,31 +7,36 @@
           <th>ip</th>
           <th>port</th>
           <th>qps</th>
+          <th>qsize</th>
           <th>operation</th>
         </tr>
       </thead>
       
       <tbody>
         <tr ng-repeat="node in nodes">
-          <th scope="row">[$ $index $]</th>
-          <td>[$ node.role $]</td>
-          <td>[$ node.ip $]</td>
-          <td>[$ node.port $]</td>
-          <td> <span class="badge" style="background:#6f00d2;">[$ node.load_factor $]</span></td>
+          <th scope="row">
+            <span ng-bind="$index"></span>
+          </th>
+
+          <td><span ng-bind="node.role"></span></td>
+          <td><span ng-bind="node.ip"></span></td>
+          <td><span ng-bind="node.port"></span></td>
+          <td> <span class="badge" style="background:#6f00d2;"><span ng-bind="node.load_factor"></span></span></td>
+          <td> <span class="badge" style="background:#af00d2;"><span ng-bind="node.qsize"></span></span></td>
           <th>
-              <button class="btn btn-danger" ng-disabled="node.running" ng-click="locuststart($index)">
+              <button class="btn btn-danger btn-sm" ng-disabled="node.running" ng-click="locuststart($index)">
                start 
               </button> 
 
-              <button class="btn btn-danger" ng-disabled="! node.running" ng-click="locustrestart($index)">
+              <button class="btn btn-danger btn-sm" ng-disabled="! node.running" ng-click="locustrestart($index)">
                restart 
               </button> 
               
-              <a class="btn btn-primary" ng-disabled="node.paused" ng-click="locustpause($index)">
+              <a class="btn btn-primary btn-sm" ng-disabled="node.paused" ng-click="locustpause($index)">
                 pause
               </a>     
               
-              <a class="btn btn-primary" ng-disabled="! node.paused" ng-click="locustresume($index)">
+              <a class="btn btn-primary btn-sm" ng-disabled="! node.paused" ng-click="locustresume($index)">
                 resume
               </a>
              

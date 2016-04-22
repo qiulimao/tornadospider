@@ -8,10 +8,12 @@ import json
 import tornadis 
 from tornado.escape import json_encode
 import urllib 
+from weblocust import settings
+from weblocust.util.db import RedisConnection,RedisPipeline
 
 class MainHandler(tornado.web.RequestHandler):
     """
-        控制台
+        控制台,总控制页面
     """
     def get(self):
         context = {
@@ -35,8 +37,8 @@ class InfoCenter(tornado.web.RequestHandler):
         一次更新所有能够获知的信息
     """
     def initialize(self):
-        self.__redis_client = tornadis.Client(host="localhost",port=6379,autoconnect=True)
-        #self.__redis_pipeline = tornadis.Pipeline()
+        #self.__redis_client = tornadis.Client(host=settings.REDIS_SERVER,port=6379,autoconnect=True)
+        pass
         
     @tornado.gen.coroutine
     def get(self):
@@ -44,20 +46,20 @@ class InfoCenter(tornado.web.RequestHandler):
             提供整个集群的信息
             请求地址：/infocenter
         """
-        redis_pipeline = tornadis.Pipeline()
-        redis_pipeline.stack_call("llen","request_queue")
-        redis_pipeline.stack_call("smembers","locust_nodes")
-        cluster_info = yield self.__redis_client.call(redis_pipeline)
+        redis_pipeline = RedisPipeline()
+        #redis_pipeline.stack_call("llen",settings.REQUEST_QUEUE)
+        redis_pipeline.stack_call("smembers",settings.CLUSTER_NODE_SET)
+        cluster_info = yield RedisConnection().call(redis_pipeline)
         # 第一次redis访问查看 队列长度 和 slave nodes
         
-        redis_pipeline = tornadis.Pipeline()
-        for node in cluster_info[1]:
+        redis_pipeline = RedisPipeline()
+        for node in cluster_info[0]:
             redis_pipeline.stack_call("hgetall",node)
 
-        nodes_info = yield self.__redis_client.call(redis_pipeline)
+        nodes_info = yield RedisConnection().call(redis_pipeline)
         # 第二次查询 获得所有的节点信息
         sysinfo = {
-            "task_queue_length":cluster_info[0],
+            "task_queue_length":999,
             "tooken":random.randrange(1,10000),
             "nodes":nodes_info,
         }
@@ -72,15 +74,16 @@ class InfoCenter(tornado.web.RequestHandler):
         """
         nodeinfo = {
             "ip":self.get_body_argument("ip"),
-            "role":"master",
+            "role":self.get_body_argument("role"),
             "port":self.get_body_argument("port"),
             "running":True if self.get_body_argument("running")=="True" else False,
             "paused":True if self.get_body_argument("paused")=="True" else False,
             "load_factor":self.get_body_argument("load_factor"),
             "concurrency":self.get_body_argument("concurrency"),
+            "qsize":self.get_body_argument("qsize"),
 
         }
-        redis_pipeline = tornadis.Pipeline()
+        redis_pipeline = RedisPipeline()
         
         node_name = u"%s:%s"%(nodeinfo["ip"],nodeinfo["port"]) 
         
@@ -89,10 +92,10 @@ class InfoCenter(tornado.web.RequestHandler):
         #    redis_param.extend([k,v])
         redis_param = json.dumps(nodeinfo)
         
-        redis_pipeline.stack_call("sadd","locust_nodes",node_name)
+        redis_pipeline.stack_call("sadd",settings.CLUSTER_NODE_SET,node_name)
         redis_pipeline.stack_call("hmset",node_name,"node_info",redis_param)
         redis_pipeline.stack_call("expire",node_name,8)
-        result = yield self.__redis_client.call(redis_pipeline)
+        result = yield RedisConnection().call(redis_pipeline)
         self.finish()
         
 class LocustController(tornado.web.RequestHandler):

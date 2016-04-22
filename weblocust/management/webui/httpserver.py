@@ -15,6 +15,7 @@ def tornadoweb(port=9999):
     app.listen(port)
     
     locust = TornadoBaseLocust()
+    
     SlaveDetector().start()
 
     tornado.ioloop.IOLoop.current().start()
