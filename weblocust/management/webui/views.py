@@ -1,15 +1,19 @@
 
 #coding:utf-8
+import json 
+import urllib 
 
 import tornado
 import random
 from weblocust.core.locusts import TornadoBaseLocust
-import json 
+
 import tornadis 
 from tornado.escape import json_encode
-import urllib 
+from weblocust.util.serialize import SqlAlchemyEncoder
+
 from weblocust import settings
 from weblocust.util.db import RedisConnection,RedisPipeline
+from weblocust.master.node import Slave 
 
 class MainHandler(tornado.web.RequestHandler):
     """
@@ -45,9 +49,8 @@ class InfoCenter(tornado.web.RequestHandler):
         """
             提供整个集群的信息
             请求地址：/infocenter
-        """
+        
         redis_pipeline = RedisPipeline()
-        #redis_pipeline.stack_call("llen",settings.REQUEST_QUEUE)
         redis_pipeline.stack_call("smembers",settings.CLUSTER_NODE_SET)
         cluster_info = yield RedisConnection().call(redis_pipeline)
         # 第一次redis访问查看 队列长度 和 slave nodes
@@ -58,12 +61,20 @@ class InfoCenter(tornado.web.RequestHandler):
 
         nodes_info = yield RedisConnection().call(redis_pipeline)
         # 第二次查询 获得所有的节点信息
+        """
+        all_slaves = Slave.roster.all()
+
         sysinfo = {
             "task_queue_length":999,
             "tooken":random.randrange(1,10000),
-            "nodes":nodes_info,
+            "nodes":json.dumps(all_slaves,cls=SqlAlchemyEncoder),
         }
+        
 
+        for slave in all_slaves:
+
+            print slave.ip,"\t",slave.port,"\t",slave.init_time,"\t",slave.update_time,"\t",type(slave.__class__)
+            
         self.write(sysinfo)
         self.finish()
         
@@ -72,30 +83,21 @@ class InfoCenter(tornado.web.RequestHandler):
         """
            接收slave发过来的节点数据，并将写到redis当中
         """
-        nodeinfo = {
-            "ip":self.get_body_argument("ip"),
-            "role":self.get_body_argument("role"),
-            "port":self.get_body_argument("port"),
-            "running":True if self.get_body_argument("running")=="True" else False,
-            "paused":True if self.get_body_argument("paused")=="True" else False,
-            "load_factor":self.get_body_argument("load_factor"),
-            "concurrency":self.get_body_argument("concurrency"),
-            "qsize":self.get_body_argument("qsize"),
 
+        #----database persist node status
+        ip = self.get_body_argument("ip")
+        port = self.get_body_argument("port")
+
+        status = {
+            "role":self.get_body_argument("role"),
+            "state_running":1 if self.get_body_argument("running")=="True" else 0,
+            "state_working":1 if self.get_body_argument("paused")=="True" else 0,
+            "state_workload":self.get_body_argument("load_factor"),
+            "state_qsize":self.get_body_argument("qsize"),
         }
-        redis_pipeline = RedisPipeline()
-        
-        node_name = u"%s:%s"%(nodeinfo["ip"],nodeinfo["port"]) 
-        
-        #redis_param = []
-        #for k,v in nodeinfo.items():
-        #    redis_param.extend([k,v])
-        redis_param = json.dumps(nodeinfo)
-        
-        redis_pipeline.stack_call("sadd",settings.CLUSTER_NODE_SET,node_name)
-        redis_pipeline.stack_call("hmset",node_name,"node_info",redis_param)
-        redis_pipeline.stack_call("expire",node_name,8)
-        result = yield RedisConnection().call(redis_pipeline)
+
+        slavenode = Slave(ip,port)
+        slavenode.greeting(status)
         self.finish()
         
 class LocustController(tornado.web.RequestHandler):

@@ -7,15 +7,14 @@ from w3lib.encoding import html_to_unicode, resolve_encoding,html_body_declared_
 import urlparse
 import cookielib
 import urllib
-
+from weblocust import settings
 
 
 
 class Request(object):
     """
     """
-    DEFAULT_USERAGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Ubuntu Chromium/48.0.2564.116 Chrome/48.0.2564.116 Safari/537.36"
-    
+    DEFAULT_USERAGENT = settings.USER_AGENT
     def __init__(self,url,data=None,cookie=None,user_agent=None,callback=None,**kwargs):
         """
             parameter:

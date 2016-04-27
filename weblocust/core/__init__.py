@@ -10,7 +10,8 @@ def timer(interval=6,lifespan=60):
         @gen.coroutine 
         def __nostop_call(*args,**kwargs):
             lifetime = 0
-            while lifetime < lifespan:
+            LOOP_FACTOR = 1 if lifespan else 0
+            while LOOP_FACTOR*lifetime <= lifespan:
                 lifetime += interval
                 nxt = gen.sleep(interval)
                 # 定时任务必须是 coroutine 

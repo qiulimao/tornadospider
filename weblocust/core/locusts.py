@@ -65,7 +65,8 @@ class TornadoBaseLocust(object):
     
     __load_factor = 0
 
-    __keep_runing = False  
+    __keep_runing = False
+
     _runing = False
     
     
@@ -75,8 +76,9 @@ class TornadoBaseLocust(object):
     def __init__(self):
 
         queuelib = importlib.import_module("weblocust.core.taskqueue")
+        
         self._taskqueue = getattr(queuelib,self.task_queue_type)(__name__)
-        print __name__
+
         self._ip = commands.getoutput("hostname -I").strip()
         self._port = random.randrange(1000,65535)
         
@@ -151,6 +153,18 @@ class TornadoBaseLocust(object):
         """
             这个函数在初始化的时候就已经被调用了
             每5s的任务情况统计器
+            nodeinfo:
+            {
+                "ip":"192.168.0.1",
+                "port":90,
+                "role":"slave",
+
+                "state_running":1     # the locust is running,but may not working
+                "state_working":1     # the locust is working fecting and parsing
+                "state_workload":32   # the workload per second
+                "state_qsize":1231    # current queue size 
+
+            }
         """
         qsize = yield self._taskqueue.qsize()
 
@@ -167,7 +181,8 @@ class TornadoBaseLocust(object):
         
         request= HTTPRequest("http://%s/infocenter" % settings.MASTER_ADDRESS,method="POST",body=urllib.urlencode(node_info))
 
-        resp = yield CurlAsyncHTTPClient().fetch(request)     
+        resp = yield CurlAsyncHTTPClient().fetch(request)   
+
         self.__load_factor = 0  
                   
     #@timer(interval=1*10,lifespan=300)
@@ -228,7 +243,6 @@ class TornadoBaseLocust(object):
         self._runing = True
         IOLoop.current().spawn_callback(self._start)
         IOLoop.current().spawn_callback(self._start_consumers)
-        #IOLoop.current().spawn_callback(self._status_watcher)
         
         
     def before_start(self):

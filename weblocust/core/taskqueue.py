@@ -44,6 +44,11 @@ class NormalTaskQueue(TaskQueue):
         ack = yield self.queue.put(request)
         raise gen.Return(ack)
 
+    @gen.coroutine
+    def qsize(self):
+        qsize = yield self.queue.qsize()
+        raise gen.Return(qsize)
+
     
 class RedisTaskQueue(TaskQueue):
     """
