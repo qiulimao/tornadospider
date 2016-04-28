@@ -25,9 +25,7 @@ class MainHandler(tornado.web.RequestHandler):
             'items':('a','b','c'),
             'message':"hello,world %d" % random.randrange(1,100),
         }
-        
-        #TornadoBaseLocust().current().runlocust()
-        
+                
         self.render('main/index.html',**context)
     
 
@@ -39,33 +37,21 @@ class InfoCenter(tornado.web.RequestHandler):
         提供机群的信息
         代理administrator发出命令和请求
         一次更新所有能够获知的信息
+
+        ##
+        # http://localhost:999/infocenter
+        ##
     """
-    def initialize(self):
-        #self.__redis_client = tornadis.Client(host=settings.REDIS_SERVER,port=6379,autoconnect=True)
-        pass
         
     @tornado.gen.coroutine
     def get(self):
         """
             提供整个集群的信息
             请求地址：/infocenter
-        
-        redis_pipeline = RedisPipeline()
-        redis_pipeline.stack_call("smembers",settings.CLUSTER_NODE_SET)
-        cluster_info = yield RedisConnection().call(redis_pipeline)
-        # 第一次redis访问查看 队列长度 和 slave nodes
-        
-        redis_pipeline = RedisPipeline()
-        for node in cluster_info[0]:
-            redis_pipeline.stack_call("hgetall",node)
-
-        nodes_info = yield RedisConnection().call(redis_pipeline)
-        # 第二次查询 获得所有的节点信息
         """
         all_slaves = Slave.roster.all()
 
         sysinfo = {
-            "task_queue_length":999,
             "tooken":random.randrange(1,10000),
             "nodes":json.dumps(all_slaves,cls=SqlAlchemyEncoder),
         }
@@ -73,7 +59,7 @@ class InfoCenter(tornado.web.RequestHandler):
 
         for slave in all_slaves:
 
-            print slave.ip,"\t",slave.port,"\t",slave.init_time,"\t",slave.update_time,"\t",type(slave.__class__)
+            print slave.ip,"\t",slave.port,"\t",slave.init_time,"\t",slave.update_time,"\t"
             
         self.write(sysinfo)
         self.finish()
@@ -81,7 +67,8 @@ class InfoCenter(tornado.web.RequestHandler):
     @tornado.gen.coroutine           
     def post(self):
         """
-           接收slave发过来的节点数据，并将写到redis当中
+           接收slave发过来的节点数据，并将写到roster当中
+           /infocenter 
         """
 
         #----database persist node status
@@ -91,46 +78,72 @@ class InfoCenter(tornado.web.RequestHandler):
         status = {
             "role":self.get_body_argument("role"),
             "state_running":1 if self.get_body_argument("running")=="True" else 0,
-            "state_working":1 if self.get_body_argument("paused")=="True" else 0,
+            "state_working":1 if self.get_body_argument("working")=="True" else 0,
             "state_workload":self.get_body_argument("load_factor"),
             "state_qsize":self.get_body_argument("qsize"),
         }
 
         slavenode = Slave(ip,port)
-        slavenode.greeting(status)
+        echo = slavenode.greeting(status)
+        cmds = {
+            "running":echo.cmd_running,
+            "working":echo.cmd_working,
+        }
+        #print json.dumps(echo,cls=SqlAlchemyEncoder)
+
+        self.write(json.dumps(cmds))
         self.finish()
         
 class LocustController(tornado.web.RequestHandler):
     """
-    
-    def prepare(self):
-        if self.request.headers["Content-Type"].startswith("application/json"):
-            self.json_args = json.loads(self.request.body)
-        else:
-            self.json_args = None    
+        地址为：http://localhost:9999/locust-control
     """
             
-    def post(self):
-        operation = json.loads(self.request.body).get("action")
+    def get(self):
+        """
+            获取所有的提交数据：
+                self.request.body
+
+            post format:
+            {
+                action:"start",
+                _ip:"192.168.0.1",
+                _port:"8080",
+            }
+        """
+
+        operation = self.get_query_argument("action")
+
         if hasattr(self,operation):
+            ip = self.get_query_argument("ip")
+            port = self.get_query_argument("port")
+            self.__slave = Slave(ip,port)
+
+            if not self.__slave.exists():
+                reply = {"error":1,"msg":u"the slave node {0}:{1} does not exist".format(ip,port)}
+                self.write(reply)
+                self.finish()
+                return 
+                
             reply = getattr(self,operation)()
         else:
             reply = {"error":1,"msg":"errors"}
             
         self.write(reply)
+        self.finish()
             
     def start(self):
-        TornadoBaseLocust().current().runlocust()
+        self.__slave.start()
         return {"error":0,"smg":"start the locust"}
     
     def restart(self):
-        TornadoBaseLocust().current().restart()
+        self.__slave.stop()
         return {"error":0,"smg":"start the locust"}
     
     def pause(self):
-        TornadoBaseLocust().current().pause()
+        self.__slave.pause()
         return {"error":0,"smg":"pause the locust"}        
         
     def resume(self):
-        TornadoBaseLocust().current().resume()
+        self.__slave.resume()
         return {"error":0,"smg":"pause the locust"}

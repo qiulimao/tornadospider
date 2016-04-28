@@ -6,12 +6,16 @@ from weblocust.master.table import session,SqliteTable
 from sqlalchemy.orm.exc import NoResultFound
 from datetime import datetime,timedelta
 from weblocust import settings
+from sqlalchemy.sql import exists
+from sqlalchemy.sql.expression import and_
 
 __all__ = ["RedisRoster","SqliteRoster"]
 
 class RosterBackend(object):
     """
         interface of Roster.
+        if roster to return some data back,json format is requried,
+        except for Boolen value
     """
     @classmethod
     def addslave(cls,ip,port,status):
@@ -34,6 +38,11 @@ class RosterBackend(object):
             if slave exists update it 
             else create a new slave 
         """
+        raise NotImplementedError
+
+    @classmethod
+    def exists(cls,ip,port):
+        """ whether a slave exists """
         raise NotImplementedError
 
     @classmethod
@@ -78,6 +87,12 @@ class SqliteRoster(RosterBackend):
             cls.slave_add(ip,port,status)
 
     @classmethod
+    def get_command(cls,ip,port):
+        cmd = session.query(SqliteTable).filter(SqliteTable.ip==ip,SqliteTable.port==port).one()
+        return cmd
+
+
+    @classmethod
     def remove_zombies(cls):
         """ remove slave zombies ,this method can be called peroidly,but not frequently,
         because it is operating the database
@@ -86,12 +101,18 @@ class SqliteRoster(RosterBackend):
         valide_period = timedelta(seconds=settings.DETECT_ZOMBIE_FRENQUENCY)
         expire = current_time - valide_period
         zombie_slaves = session.query(SqliteTable).filter(SqliteTable.update_time < expire).delete()
-        print zombie_slaves
+        #print zombie_slaves
 
     @classmethod
     def all(cls,offset=0,limit=100):
         """ get all the slaves """
         all_slaves = session.query(SqliteTable).offset(offset).limit(limit).all()
         return all_slaves
+
+    @classmethod
+    def exists(cls,ip,port):
+        """ check whether the slave exists """
+        return session.query(exists().where(and_(SqliteTable.ip == ip,SqliteTable.port==port))).scalar()
+
 
 

@@ -2,8 +2,9 @@
 import inspect
 from importlib import import_module
 from pkgutil import iter_modules
-from weblocust.management.command import WebLocustCommand
+from weblocust.management.command.directive import WebLocustCommand
 from optparse import OptionParser
+from tornado.ioloop import IOLoop
 
 def walk_modules(path):
     """Loads a module and all its submodules from a the given module path and
@@ -49,12 +50,15 @@ def manage_command():
         mod.add_options(parser)
         _cmds.append(mod)
         
-    
+    # _cmds is a list of commands
+
     options,args = parser.parse_args()
     
-    cmd = filter(lambda x:True if x.__name__==options.controller else False,_cmds)
+    cmd = filter(lambda x:True if x.controller_name==options.controller else False,_cmds)
     if len(cmd) == 1:
         handler = cmd[0]()
         handler.run_command(options,*args)
+        IOLoop.current().start()
     else:
         parser.error("no such command,run `weblocust --help` to get more detail")
+

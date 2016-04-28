@@ -12,9 +12,15 @@ class Slave(object):
         self.ip = ip
         self.port = port
 
+    def _get_command(self):
+        cmd = self.roster.get_command(self.ip,self.port)
+        return cmd
+
     def greeting(self,status):
         """ greeting to the server """
         self.roster.update_or_add(self.ip,self.port,status)
+        return self._get_command()
+
         #raise NotImplementedError
 
     def register(self,status):
@@ -34,19 +40,35 @@ class Slave(object):
 
     def start(self):
         """start the slave """
-        raise NotImplementedError
+        #print "------------"
+        status = {
+            "cmd_running":True,
+        }
+        self.roster.slave_update(self.ip,self.port,status)
 
     def stop(self):
         """ stop the slave.but no kill the slave,just hold the slave """
-        raise NotImplementedError
+        #raise NotImplementedError
+        status = {
+            "cmd_running":False,
+        }
+        self.roster.slave_update(self.ip,self.port,status)
 
     def pause(self):
         """ pasuse the slave """
-        raise NotImplementedError
+        status = {
+            "cmd_working":False,
+        }
+        self.roster.slave_update(self.ip,self.port,status)
 
     def resume(self):
-        """ resume the slave """
-        raise NotImplementedError
+        status = {
+            "cmd_working":True,
+        }
+        self.roster.slave_update(self.ip,self.port,status)
+
+    def exists(self):
+        return self.roster.exists(self.ip,self.port)
 
     @classmethod 
     def set_roster(cls,roster):

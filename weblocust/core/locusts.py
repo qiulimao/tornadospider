@@ -14,6 +14,7 @@ import importlib
 import commands
 import tornadis 
 import urllib 
+import json
 
 from socket import gaierror
 from datetime import timedelta 
@@ -44,46 +45,26 @@ class TornadoBaseLocust(object):
         以 "_" 开头的方法客户端代码尽量不要调用，这些代码为框架调用
     """
     
-    __metaclass__ = SigleInstance
-
-
     name = "tornado_base_locust"
 
-    start_urls = [
-        "http://news.163.com/",
-        "http://www.163.com/",
-        "http://news.sina.com.cn/",
-        "http://news.baidu.com/",
-        "http://news.qq.com/",
-        "http://news.ifeng.com/"
-        "http://www.wooyun.org"
-        ]
-
-    concurrency = settings.CONCURRENCY
-    
-    task_queue_type = "RedisTaskQueue"
+    start_urls = []
+   
+    task_queue_type = "RedisTaskQueue"      # 这个设计有点丑陋，任务队列的配置文件应该写在配置文件当中
     
     __load_factor = 0
 
-    __keep_runing = False
+    _working = False
 
-    _runing = False
+    _running = False
     
-    
-    
-    
-
     def __init__(self):
 
         queuelib = importlib.import_module("weblocust.core.taskqueue")
         
-        self._taskqueue = getattr(queuelib,self.task_queue_type)(__name__)
+        self._taskqueue = getattr(queuelib,self.task_queue_type)(self.name)
 
         self._ip = commands.getoutput("hostname -I").strip()
         self._port = random.randrange(1000,65535)
-        
-        IOLoop.current().spawn_callback(self._status_watcher)
-        
         self.before_start()
              
     @gen.coroutine
@@ -111,7 +92,6 @@ class TornadoBaseLocust(object):
             消费者
             首先从队列当中获得请求
             将请求转换为tornado当中的请求
-            
             访问页面，收到response
         """
         while True:
@@ -144,10 +124,10 @@ class TornadoBaseLocust(object):
             如果一起yield，如果list当中的任何一个yield发生exception，将不会被及时抛出！！！
             所以最好在每个协程里面处理异常
         """
-        yield [self._consumer() for _ in range(self.concurrency)]
+        yield [self._consumer() for _ in range(settings.CONCURRENCY)]
 
 
-    @timer(interval=3,lifespan=10*356*24*60*60)
+    @timer(interval=settings.STATUS_WATCHER_FRENQUENCY,lifespan=0)
     @gen.coroutine
     def _status_watcher(self):
         """
@@ -170,24 +150,29 @@ class TornadoBaseLocust(object):
 
         node_info = {
             "role":"master" if self._ip == settings.MASTER_ADDRESS else "slave",
-            "running":self._runing ,
-            "paused":not self.__keep_runing,
-            "load_factor":self.__load_factor/3,
-            "concurrency":self.concurrency,
+            "running":self._running ,
+            "working":self._working,
+            "load_factor":self.__load_factor/settings.STATUS_WATCHER_FRENQUENCY,
             "ip":self._ip,
             "port":self._port,
             "qsize":qsize
         }
         
-        request= HTTPRequest("http://%s/infocenter" % settings.MASTER_ADDRESS,method="POST",body=urllib.urlencode(node_info))
+        request= HTTPRequest("http://%s:%d/infocenter" % (settings.MASTER_ADDRESS,settings.MASTER_PORT),\
+            method="POST",body=urllib.urlencode(node_info))
 
         resp = yield CurlAsyncHTTPClient().fetch(request)   
+        cmds = json.loads(resp.body)
 
-        self.__load_factor = 0  
-                  
+        self._cmd_working(cmds.get("working",False))
+        self.__load_factor = 0 
+
+    def _cmd_working(self,cmd):
+        self._working = True if cmd else False
+
     #@timer(interval=1*10,lifespan=300)
     @gen.coroutine
-    def _start(self):
+    def _start_task(self):
         """
             添加初始任务，slave 节点不应该调用这个方法
         """       
@@ -202,35 +187,31 @@ class TornadoBaseLocust(object):
         """
         ack = yield self._taskqueue.put(request)
         raise gen.Return(ack)
-        
-
-    
+          
     @gen.coroutine    
     def _get_from_queue(self):
         """
         封装从queue当中获取任务
         """
-        while not self.__keep_runing:
+        while not self._working:
             yield gen.sleep(3)
             
         task = yield self._taskqueue.get()
         raise gen.Return(task)
 
+    def crontab(self):
+        pass
 
+    def prepare(self):
+        IOLoop.current().spawn_callback(self._status_watcher)
+        IOLoop.current().spawn_callback(self._start_task)
+        IOLoop.current().spawn_callback(self._start_consumers)
+        IOLoop.current().start()
+        
     def current(self):
         """ """
         return self._instance
-    
-    def pause(self):
-        """ """
-        self.__keep_runing = False
-    
-    def resume(self):
-        self.__keep_runing = True 
-    
-    def restart(self):
-        IOLoop.current().spawn_callback(self._start)
-    
+      
     @gen.coroutine
     def send_request(self,request):
         """
@@ -238,42 +219,18 @@ class TornadoBaseLocust(object):
         """
         ack = yield self._put2queue(request)
         raise gen.Return(ack)
-                
-    def runlocust(self):
-        self._runing = True
-        IOLoop.current().spawn_callback(self._start)
-        IOLoop.current().spawn_callback(self._start_consumers)
         
         
     def before_start(self):
         """
-            这个函数是一个阻塞函数，因为后面的操作可能会依赖这个结果;
-            这个函数在类实例化的时候被调用
-            
+            start before the locust works,you may use it for login,and get the cookie
         """
         pass
             
     @gen.coroutine
     def parse(self,response):
         """
-            解析和存储过程不能使用异步，因为：
-                普通情况下操作文件可以使用异步，但是因为是数据库操作，
-                所以很有可能造成数据库锁表，因此效率会更加大打折扣。
-            所有的请回回调函数都是 producer
         """
-
-        links =  response.xpath("//a/@href")
-        
-        yield [self.send_request(Request(
-                                        response.urljoin(link),
-                                        cookie = response.cookie,
-                                        callback="parse_one")
-                                ) for link in links]
-    
-    @gen.coroutine
-    def parse_one(self,response):
-        a = response.xpath("//title/text()")
-        if a:
-            print a[0]
+        raise NotImplementedError
 
                

@@ -21,6 +21,9 @@ class TaskQueue(object):
 
     def put(self,request):
         raise NotImplementedError
+
+    def qsize(self):
+        raise NotImplementedError
     
         
         

@@ -3,7 +3,9 @@ from tornado import gen
 import functools
 
 def timer(interval=6,lifespan=60):
-    
+    """
+       if lifespan == 0 ,this job will loop for ever
+    """
     
     def _wrapper(func):
         #调用定时任务的函数也必须是一个 coroutine

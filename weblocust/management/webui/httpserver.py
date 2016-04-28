@@ -5,19 +5,15 @@ import tornado.web
 from .urls import urlpatterns
 from .websettings import configure
 from weblocust.core.locusts import TornadoBaseLocust
-from weblocust.core.msgdealer import SlaveDetector
+from weblocust.core.plugin import ZombieSlaveDetector
     
 def tornadoweb(port=9999):
     """
         开启web
     """
-    app = tornado.web.Application(urlpatterns,**configure)
-    app.listen(port)
-    
-    locust = TornadoBaseLocust()
-    
-    SlaveDetector().start()
-
-    tornado.ioloop.IOLoop.current().start()
+    locust_controller = tornado.web.Application(urlpatterns,**configure)
+    locust_controller.listen(port)
+    ZombieSlaveDetector().start()
+    #tornado.ioloop.IOLoop.current().start()
 
     
